@@ -43,14 +43,20 @@ func NewApp(cfg config.Config, staticFiles embed.FS) *App {
 	// Initialize static file service (subPath is "web/static" because embed path is "web/static/*")
 	staticService := static.NewService(staticFiles, "web/static", compressor)
 
-	// Initialize MD5 cache
-	md5Cache := storage.NewMD5CacheAdapter()
+	// Initialize MD5 cache and calculator based on pluggable config
+	var md5Cache interfaces.MD5Cache
+	var md5Calculator interfaces.MD5Calculator
+
+	if cfg.EnableMD5 {
+		md5Cache = storage.NewMD5CacheAdapter()
+		md5Calculator = storage.NewMD5CalculatorAdapter(cfg.StoragePath, md5Cache, true)
+	} else {
+		md5Cache = storage.NewNullMD5Cache()
+		md5Calculator = storage.NewNullMD5Calculator()
+	}
 
 	// Initialize storage adapter
-	storageAdapter := storage.NewStorageAdapter(cfg.StoragePath, md5Cache)
-
-	// Initialize MD5 calculator
-	md5Calculator := storage.NewMD5CalculatorAdapter(cfg.StoragePath, md5Cache)
+	storageAdapter := storage.NewStorageAdapter(cfg.StoragePath, md5Cache, cfg.EnableMD5)
 
 	// Initialize service layer
 	fileService := services.NewFileService(storageAdapter, md5Calculator, cfg.StoragePath)
@@ -224,26 +230,9 @@ func corsMiddleware() gin.HandlerFunc {
 }
 
 // gzipMiddleware returns a gzip compression middleware.
-// It compresses supported responses but excludes WebSocket and API endpoints.
+// Static file and home handlers already manage their own compression cleanly.
 func gzipMiddleware(compressor interfaces.Compressor, staticService interfaces.StaticFileService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		path := c.Request.URL.Path
-		// WebSocket connections and API endpoints should not be compressed (handled by specific handlers)
-		// Static file service already handles gzip compression
-		if path == "/static/" || path == "/" || strings.HasPrefix(path, "/ws/") || strings.HasPrefix(path, "/files") || strings.HasPrefix(path, "/upload") || strings.HasPrefix(path, "/download") || strings.HasPrefix(path, "/metrics") || path == "/favicon.ico" {
-			c.Next()
-			return
-		}
-
-		acceptEncoding := c.GetHeader("Accept-Encoding")
-		if !compressor.Supports(acceptEncoding) {
-			c.Next()
-			return
-		}
-
-		// For other paths, use gzip response writer
-		c.Header("Content-Encoding", compressor.ContentEncoding())
-		c.Header("Vary", "Accept-Encoding")
 		c.Next()
 	}
 }
@@ -299,7 +288,24 @@ func staticFileHandler(service interfaces.StaticFileService) gin.HandlerFunc {
 // homeHandler returns a handler for home page requests.
 func homeHandler(service interfaces.StaticFileService) gin.HandlerFunc {
 	return func(c *gin.Context) {
-		data, contentType, err := service.GetFile("index.html")
+		acceptEncoding := c.GetHeader("Accept-Encoding")
+		var data []byte
+		var contentType string
+		var err error
+
+		// Check if browser supports gzip, and fetch pre-compressed gzip content
+		if acceptEncoding != "" && strings.Contains(acceptEncoding, "gzip") {
+			data, contentType, err = service.GetFileGzip("index.html")
+			if err == nil && len(data) > 0 {
+				c.Header("Content-Encoding", "gzip")
+				c.Header("Vary", "Accept-Encoding")
+			}
+		}
+
+		if len(data) == 0 {
+			data, contentType, err = service.GetFile("index.html")
+		}
+
 		if err != nil {
 			c.Status(http.StatusNotFound)
 			return

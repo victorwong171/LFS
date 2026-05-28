@@ -65,18 +65,6 @@ func (h *ChatHub) Run() {
 			h.clients[client] = true
 			h.mutex.Unlock()
 
-			joinMsg := ChatMessage{
-				Type:      "join",
-				IP:        client.ip,
-				Nickname:  client.nickname,
-				Message:   client.nickname + " 加入了聊天室",
-				Timestamp: time.Now().Format("2006-01-02 15:04:05"),
-			}
-			// 使用 goroutine 发送，避免阻塞
-			go func() {
-				h.broadcast <- joinMsg
-			}()
-
 		case client := <-h.unregister:
 			h.mutex.Lock()
 			if _, ok := h.clients[client]; ok {
@@ -197,9 +185,32 @@ func (c *Client) readPump() {
 			continue
 		}
 
+		// 拦截初始化消息
+		if msg.Type == "init" {
+			if msg.Nickname != "" {
+				c.nickname = msg.Nickname
+			}
+			
+			// 广播加入聊天室的消息（带上用户自定义的昵称）
+			joinMsg := ChatMessage{
+				Type:      "join",
+				IP:        c.ip,
+				Nickname:  c.nickname,
+				Message:   c.nickname + " 加入了聊天室",
+				Timestamp: time.Now().Format("2006-01-02 15:04:05"),
+			}
+			c.hub.broadcast <- joinMsg
+			continue
+		}
+
 		msg.Type = "message"
 		msg.IP = c.ip
-		msg.Nickname = c.nickname
+		// 允许客户端自定义昵称，并更新服务器连接上下文中的用户昵称，以便后续上下线通知一致
+		if msg.Nickname != "" {
+			c.nickname = msg.Nickname
+		} else {
+			msg.Nickname = c.nickname
+		}
 		msg.Timestamp = time.Now().Format("2006-01-02 15:04:05")
 
 		c.hub.broadcast <- msg

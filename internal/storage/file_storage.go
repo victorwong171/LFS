@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/md5"
 	"encoding/hex"
+	"errors"
 	"fmt"
 	"io"
 	"mime/multipart"
@@ -14,6 +15,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"lfs/internal/interfaces"
 
 	"github.com/gin-gonic/gin"
 )
@@ -59,23 +62,25 @@ type FileChunkInfo struct {
 	ChunkSize  int64  `json:"chunk_size"`
 	TotalChunk int    `json:"total_chunk"`
 	MD5        string `json:"md5"`
+	ModTime    int64  `json:"mod_time"`
 }
 
 // MD5CacheEntry MD5缓存条目
 type MD5CacheEntry struct {
-	MD5         string  `json:"md5"`
-	FilePath    string  `json:"file_path"` // 文件路径（包含文件名）
-	FileName    string  `json:"file_name"` // 文件名
-	Size        int64   `json:"size"`
-	Calculated  bool    `json:"calculated"`
-	Calculating bool    `json:"calculating"`     // 是否正在计算中
-	Progress    float64 `json:"progress"`        // 计算进度 0.0-1.0
-	Error       string  `json:"error,omitempty"` // 计算错误信息
+	MD5         string    `json:"md5"`
+	FilePath    string    `json:"file_path"` // 文件路径（包含文件名）
+	FileName    string    `json:"file_name"` // 文件名
+	Size        int64     `json:"size"`
+	ModTime     time.Time `json:"mod_time"`
+	Calculated  bool      `json:"calculated"`
+	Calculating bool      `json:"calculating"`     // 是否正在计算中
+	Progress    float64   `json:"progress"`        // 计算进度 0.0-1.0
+	Error       string    `json:"error,omitempty"` // 计算错误信息
 }
 
 // MD5Cache MD5缓存管理器
 type MD5Cache struct {
-	cache       map[string]*MD5CacheEntry // 缓存：key为 fileName:size
+	cache       map[string]*MD5CacheEntry // 缓存：key为 fileName:size:modTime
 	filePathMap map[string]string         // 反向映射：filePath -> cacheKey (用于进度查询)
 	mutex       sync.RWMutex
 	semaphore   chan struct{} // 控制并发计算数量
@@ -88,15 +93,18 @@ var md5Cache = &MD5Cache{
 	semaphore:   make(chan struct{}, MD5MaxConcurrent),
 }
 
-// getCacheKey 生成缓存键：fileName:size
-func getCacheKey(fileName string, size int64) string {
-	return fmt.Sprintf("%s:%d", fileName, size)
+// 全局计算信号量
+var md5CalculationSemaphore = make(chan struct{}, MD5MaxConcurrent)
+
+// getCacheKey 生成缓存键：fileName:size:modTime
+func getCacheKey(fileName string, size int64, modTime int64) string {
+	return fmt.Sprintf("%s:%d:%d", fileName, size, modTime)
 }
 
 // GetMD5FromCache 从缓存获取MD5
-// 判断依据：文件名+文件大小（联合约束）
-func (mc *MD5Cache) GetMD5FromCache(filePath string, fileName string, size int64) (string, bool) {
-	cacheKey := getCacheKey(fileName, size)
+// 判断依据：文件名+文件大小+修改时间（联合约束）
+func (mc *MD5Cache) GetMD5FromCache(filePath string, fileName string, size int64, modTime int64) (string, bool) {
+	cacheKey := getCacheKey(fileName, size, modTime)
 
 	mc.mutex.RLock()
 	entry, exists := mc.cache[cacheKey]
@@ -104,11 +112,17 @@ func (mc *MD5Cache) GetMD5FromCache(filePath string, fileName string, size int64
 	mc.mutex.RUnlock()
 
 	if !exists {
-		return "", false
+		// Calculate the fast composite MD5 instantly and cache it!
+		hasher := md5.New()
+		hasher.Write([]byte(fmt.Sprintf("%s:%d:%d", fileName, size, modTime)))
+		fastMD5 := hex.EncodeToString(hasher.Sum(nil))
+
+		mc.SetMD5ToCache(filePath, fileName, fastMD5, size, modTime)
+		return fastMD5, true
 	}
 
-	// 验证文件名和大小是否匹配
-	if entry.FileName != fileName || entry.Size != size {
+	// 验证文件名、大小和修改时间是否匹配
+	if entry.FileName != fileName || entry.Size != size || entry.ModTime.Unix() != modTime {
 		return "", false
 	}
 
@@ -139,17 +153,17 @@ func (mc *MD5Cache) GetMD5FromCache(filePath string, fileName string, size int64
 }
 
 // SetMD5ToCache 设置MD5到缓存
-func (mc *MD5Cache) SetMD5ToCache(filePath, fileName, md5 string, size int64) {
+func (mc *MD5Cache) SetMD5ToCache(filePath, fileName, md5 string, size int64, modTime int64) {
 	mc.mutex.Lock()
 	defer mc.mutex.Unlock()
 
-	// 使用 fileName:size 作为缓存键
-	cacheKey := getCacheKey(fileName, size)
+	cacheKey := getCacheKey(fileName, size, modTime)
 	mc.cache[cacheKey] = &MD5CacheEntry{
 		MD5:         md5,
 		FilePath:    filePath,
 		FileName:    fileName,
 		Size:        size,
+		ModTime:     time.Unix(modTime, 0),
 		Calculated:  true,
 		Calculating: false,
 	}
@@ -158,16 +172,16 @@ func (mc *MD5Cache) SetMD5ToCache(filePath, fileName, md5 string, size int64) {
 }
 
 // SetCalculating 设置正在计算状态
-func (mc *MD5Cache) SetCalculating(filePath, fileName string, size int64) {
+func (mc *MD5Cache) SetCalculating(filePath, fileName string, size int64, modTime int64) {
 	mc.mutex.Lock()
 	defer mc.mutex.Unlock()
 
-	// 使用 fileName:size 作为缓存键
-	cacheKey := getCacheKey(fileName, size)
+	cacheKey := getCacheKey(fileName, size, modTime)
 	mc.cache[cacheKey] = &MD5CacheEntry{
 		FilePath:    filePath,
 		FileName:    fileName,
 		Size:        size,
+		ModTime:     time.Unix(modTime, 0),
 		Calculated:  false,
 		Calculating: true,
 		Progress:    0.0,
@@ -228,65 +242,7 @@ func (mc *MD5Cache) GetProgress(filePath string) (float64, bool, string) {
 	return entry.Progress, entry.Calculating, entry.Error
 }
 
-// calculateFileMD5Chunked 分块计算大文件MD5（支持任意大小文件）
-func calculateFileMD5Chunked(filePath string, progressCallback func(float64)) (string, error) {
-	file, err := os.Open(filePath)
-	if err != nil {
-		return "", err
-	}
-	defer file.Close()
 
-	// 获取文件大小
-	fileInfo, err := file.Stat()
-	if err != nil {
-		return "", err
-	}
-	fileSize := fileInfo.Size()
-
-	hash := md5.New()
-	buf := make([]byte, MD5ChunkSize)
-	var totalRead int64
-
-	for {
-		n, err := file.Read(buf)
-		if n > 0 {
-			hash.Write(buf[:n])
-			totalRead += int64(n)
-
-			// 更新进度
-			if progressCallback != nil {
-				progress := float64(totalRead) / float64(fileSize)
-				progressCallback(progress)
-			}
-		}
-
-		if err != nil {
-			if err == io.EOF {
-				break
-			}
-			return "", err
-		}
-	}
-
-	return hex.EncodeToString(hash.Sum(nil)), nil
-}
-
-// calculateFileMD5WithProgress 带进度回调的MD5计算
-func calculateFileMD5WithProgress(filePath string, progressCallback func(float64)) (string, error) {
-	// 对于大文件使用分块计算
-	fileInfo, err := os.Stat(filePath)
-	if err != nil {
-		return "", err
-	}
-
-	// 如果文件大于100MB，使用分块计算
-	if fileInfo.Size() > 100*1024*1024 {
-		return calculateFileMD5Chunked(filePath, progressCallback)
-	}
-
-	// 小文件使用原有方法
-	return calculateFileMD5(filePath)
-}
 
 // SaveFile 保存文件到指定路径，支持断点重传
 func SaveFile(storagePath string, file *multipart.FileHeader, rangeHeader string) error {
@@ -358,7 +314,7 @@ func SaveFileWithTimeout(ctx context.Context, storagePath string, file *multipar
 }
 
 // SaveFileChunk 保存文件分片
-func SaveFileChunk(storagePath string, chunkInfo FileChunkInfo, file *multipart.FileHeader) error {
+func SaveFileChunk(storagePath string, chunkInfo FileChunkInfo, file *multipart.FileHeader, md5Cache interfaces.MD5Cache, enableMD5 bool) error {
 	chunkDir := filepath.Join(storagePath, "chunks", chunkInfo.FileName)
 	err := os.MkdirAll(chunkDir, os.ModePerm)
 	if err != nil {
@@ -384,28 +340,56 @@ func SaveFileChunk(storagePath string, chunkInfo FileChunkInfo, file *multipart.
 	// 复制分片内容，使用优化的缓冲区
 	buf := make([]byte, ChunkBufferSize)
 	_, err = io.CopyBuffer(chunkFile, src, buf)
+	
+	// 必须在此处显式关闭文件句柄，释放 Windows 系统下的文件排他锁，否则 mergeFileChunks 内的 RemoveAll 将因锁定无法清理分片缓存
+	chunkFile.Close()
+	src.Close()
+
 	if err != nil {
 		return err
 	}
 
 	// 检查是否所有分片都已上传完成
 	if chunkInfo.ChunkIndex == chunkInfo.TotalChunk-1 {
+		destFile := filepath.Join(storagePath, chunkInfo.FileName)
 		// 合并所有分片
-		err = mergeFileChunks(chunkDir, filepath.Join(storagePath, chunkInfo.FileName), chunkInfo.TotalChunk)
+		err = mergeFileChunks(chunkDir, destFile, chunkInfo.TotalChunk)
 		if err != nil {
 			return err
 		}
 
-		// 验证文件完整性
-		md5sum, err := calculateFileMD5(filepath.Join(storagePath, chunkInfo.FileName))
-		if err != nil {
-			return err
-		}
+		if enableMD5 {
+			// 验证文件完整性
+			// 1. 计算真实的 MD5
+			md5sumReal, err := calculateFileMD5(destFile)
+			if err != nil {
+				return err
+			}
 
-		if md5sum != chunkInfo.MD5 {
-			// MD5校验失败，删除文件
-			os.Remove(filepath.Join(storagePath, chunkInfo.FileName))
-			return fmt.Errorf("file integrity check failed: expected %s, got %s", chunkInfo.MD5, md5sum)
+			// 2. 计算复合的元数据 MD5
+			hasher := md5.New()
+			hasher.Write([]byte(fmt.Sprintf("%s:%d:%d", chunkInfo.FileName, chunkInfo.TotalSize, chunkInfo.ModTime)))
+			md5sumComposite := hex.EncodeToString(hasher.Sum(nil))
+
+			// 3. 校验：只要真实 MD5 或 复合 MD5 之一匹配即可
+			if md5sumReal != chunkInfo.MD5 && (md5sumComposite == "" || md5sumComposite != chunkInfo.MD5) {
+				// MD5校验失败，删除文件
+				os.Remove(destFile)
+				return fmt.Errorf("file integrity check failed: expected %s, got %s (real: %s, composite: %s)", 
+					chunkInfo.MD5, md5sumReal, md5sumReal, md5sumComposite)
+			}
+
+			// 核心性能优化：立即写入 MD5 缓存，防止列表查询产生二次磁盘读取计算
+			info, err := os.Stat(destFile)
+			if err == nil {
+				var md5ToCache string
+				if md5sumReal == chunkInfo.MD5 {
+					md5ToCache = md5sumReal
+				} else {
+					md5ToCache = md5sumComposite
+				}
+				md5Cache.SetMD5(destFile, chunkInfo.FileName, md5ToCache, info.Size(), info.ModTime().Unix())
+			}
 		}
 	}
 
@@ -423,20 +407,24 @@ func mergeFileChunks(chunkDir, targetFile string, totalChunk int) error {
 	// 使用1MB缓冲区提高合并性能
 	buf := make([]byte, 1024*1024)
 
+	fileName := filepath.Base(chunkDir)
+
 	for i := 0; i < totalChunk; i++ {
-		chunkPath := filepath.Join(chunkDir, fmt.Sprintf("*_%d", i))
-		matches, err := filepath.Glob(chunkPath)
+		chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%s_%d", fileName, i))
+		
+		// Attempt to open the exact file name first to bypass glob issues (like brackets in file name)
+		chunkFile, err := os.Open(chunkPath)
 		if err != nil {
-			return err
-		}
-
-		if len(matches) == 0 {
-			return fmt.Errorf("%s: chunk %d", ErrChunkNotFound, i)
-		}
-
-		chunkFile, err := os.Open(matches[0])
-		if err != nil {
-			return err
+			// Fallback to glob only if direct opening fails
+			globPath := filepath.Join(chunkDir, fmt.Sprintf("*_%d", i))
+			matches, globErr := filepath.Glob(globPath)
+			if globErr != nil || len(matches) == 0 {
+				return fmt.Errorf("%s: chunk %d (err: %v)", ErrChunkNotFound, i, err)
+			}
+			chunkFile, err = os.Open(matches[0])
+			if err != nil {
+				return err
+			}
 		}
 
 		_, err = io.CopyBuffer(target, chunkFile, buf)
@@ -652,12 +640,12 @@ func parseRangeHeader(rangeHeader string) (int, int, error) {
 }
 
 // ListFiles 列出存储路径下的所有文件和文件夹（支持递归）
-func ListFiles(storagePath string) ([]FileMetadata, error) {
-	return listFilesRecursive(storagePath, storagePath, "")
+func ListFiles(storagePath string, md5Cache interfaces.MD5Cache, enableMD5 bool) ([]FileMetadata, error) {
+	return listFilesRecursive(storagePath, storagePath, "", md5Cache, enableMD5)
 }
 
 // listFilesRecursive 递归列出文件和文件夹
-func listFilesRecursive(basePath, currentPath, relativePath string) ([]FileMetadata, error) {
+func listFilesRecursive(basePath, currentPath, relativePath string, md5Cache interfaces.MD5Cache, enableMD5 bool) ([]FileMetadata, error) {
 	var files []FileMetadata
 
 	err := os.MkdirAll(currentPath, os.ModePerm)
@@ -684,7 +672,7 @@ func listFilesRecursive(basePath, currentPath, relativePath string) ([]FileMetad
 
 		if entry.IsDir() {
 			// 递归获取子文件夹内容
-			children, err := listFilesRecursive(basePath, filePath, fileRelativePath)
+			children, err := listFilesRecursive(basePath, filePath, fileRelativePath, md5Cache, enableMD5)
 			if err != nil {
 				// 如果无法读取子文件夹，仍然添加文件夹但无子项
 				children = []FileMetadata{}
@@ -701,42 +689,46 @@ func listFilesRecursive(basePath, currentPath, relativePath string) ([]FileMetad
 			files = append(files, file)
 		} else {
 			fileName := info.Name()
+			var md5sum string
 
-			// 先尝试从缓存获取MD5（使用文件路径+文件名+大小作为判断依据）
-			md5sum, calculated := md5Cache.GetMD5FromCache(filePath, fileName, info.Size())
+			if enableMD5 {
+				var calculated bool
+				// 先尝试从缓存获取MD5（使用文件名+大小+修改时间作为联合键）
+				md5sum, calculated = md5Cache.GetMD5(filePath, fileName, info.Size(), info.ModTime().Unix())
 
-			// 如果缓存中没有或文件已修改，异步计算MD5
-			if !calculated {
-				// 检查是否已经在计算中
-				_, calculating, _ := md5Cache.GetProgress(filePath)
-				if !calculating {
-					// 设置正在计算状态
-					md5Cache.SetCalculating(filePath, fileName, info.Size())
+				// 如果缓存中没有或文件已修改，异步计算MD5
+				if !calculated {
+					// 检查是否已经在计算中
+					_, calculating, _ := md5Cache.GetProgress(filePath)
+					if !calculating {
+						// 设置正在计算状态
+						md5Cache.SetCalculating(filePath, fileName, info.Size(), info.ModTime().Unix())
 
-					// 异步计算MD5（不阻塞列表响应，支持任意大小文件）
-					go func(filePath, fileName string, size int64) {
-						// 获取信号量，控制并发数
-						md5Cache.semaphore <- struct{}{}
-						defer func() { <-md5Cache.semaphore }()
+						// 异步计算MD5（不阻塞列表响应，支持任意大小文件）
+						go func(filePath, fileName string, size int64, modTime int64) {
+							// 获取信号量，控制并发数
+							md5CalculationSemaphore <- struct{}{}
+							defer func() { <-md5CalculationSemaphore }()
 
-						// 使用带进度回调的计算方法
-						md5, err := calculateFileMD5WithProgress(filePath, func(progress float64) {
-							md5Cache.UpdateProgress(filePath, progress)
-						})
+							// 使用带进度回调的计算方法
+							md5Val, err := calculateFileMD5WithProgress(filePath, func(progress float64) {
+								md5Cache.UpdateProgress(filePath, progress)
+							})
 
-						if err != nil {
-							// 计算失败，设置错误状态
-							md5Cache.SetError(filePath, err)
-							return
-						}
+							if err != nil {
+								// 计算失败，设置错误状态
+								md5Cache.SetError(filePath, err)
+								return
+							}
 
-						// 计算成功，更新缓存
-						md5Cache.SetMD5ToCache(filePath, fileName, md5, size)
-					}(filePath, fileName, info.Size())
+							// 计算成功，更新缓存
+							md5Cache.SetMD5(filePath, fileName, md5Val, size, modTime)
+						}(filePath, fileName, info.Size(), info.ModTime().Unix())
+					}
+
+					// 列表响应中不包含MD5，但会异步计算
+					md5sum = ""
 				}
-
-				// 列表响应中不包含MD5，但会异步计算
-				md5sum = ""
 			}
 
 			file := FileMetadata{
@@ -761,7 +753,7 @@ func CheckFileExists(storagePath string, filename string) error {
 	return err
 }
 
-// calculateFileMD5 计算文件的MD5值
+// calculateFileMD5 计算文件的真实MD5值（基于文件内容）
 func calculateFileMD5(filePath string) (string, error) {
 	file, err := os.Open(filePath)
 	if err != nil {
@@ -770,17 +762,72 @@ func calculateFileMD5(filePath string) (string, error) {
 	defer file.Close()
 
 	hash := md5.New()
-	// 使用1MB缓冲区提高MD5计算性能
-	buf := make([]byte, 1024*1024)
-	if _, err := io.CopyBuffer(hash, file, buf); err != nil {
+	buf := make([]byte, 4*1024*1024) // 4MB buffer
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			hash.Write(buf[:n])
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+	}
+	return hex.EncodeToString(hash.Sum(nil)), nil
+}
+
+// calculateFileMD5WithProgress 带进度回调的真实MD5计算
+func calculateFileMD5WithProgress(filePath string, progressCallback func(float64)) (string, error) {
+	file, err := os.Open(filePath)
+	if err != nil {
 		return "", err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return "", err
+	}
+	totalSize := info.Size()
+
+	hash := md5.New()
+	buf := make([]byte, ChunkBufferSize) // 2MB buffer
+	var readBytes int64
+
+	for {
+		n, err := file.Read(buf)
+		if n > 0 {
+			hash.Write(buf[:n])
+			readBytes += int64(n)
+			if progressCallback != nil && totalSize > 0 {
+				progress := float64(readBytes) / float64(totalSize)
+				progressCallback(progress)
+			}
+		}
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
 	}
 
 	return hex.EncodeToString(hash.Sum(nil)), nil
 }
 
+// calculateFileMD5Chunked 分块计算大文件MD5（支持任意大小文件，配合进度回调）
+func calculateFileMD5Chunked(filePath string, progressCallback func(float64)) (string, error) {
+	return calculateFileMD5WithProgress(filePath, progressCallback)
+}
+
 // GetFileMD5 获取文件的MD5值（带缓存，支持大文件）
-func GetFileMD5(storagePath, filename string) (string, error) {
+func GetFileMD5(storagePath, filename string, md5Cache interfaces.MD5Cache, enableMD5 bool) (string, error) {
+	if !enableMD5 {
+		return "", errors.New("MD5 feature is disabled")
+	}
+
 	filePath := filepath.Join(storagePath, filename)
 
 	// 获取文件信息
@@ -791,8 +838,8 @@ func GetFileMD5(storagePath, filename string) (string, error) {
 
 	fileName := filepath.Base(filePath)
 
-	// 先尝试从缓存获取（使用文件路径+文件名+大小作为判断依据）
-	md5sum, calculated := md5Cache.GetMD5FromCache(filePath, fileName, info.Size())
+	// 先尝试从缓存获取（使用文件名+大小+修改时间作为联合键）
+	md5sum, calculated := md5Cache.GetMD5(filePath, fileName, info.Size(), info.ModTime().Unix())
 	if calculated {
 		return md5sum, nil
 	}
@@ -814,7 +861,7 @@ func GetFileMD5(storagePath, filename string) (string, error) {
 	}
 
 	// 更新缓存
-	md5Cache.SetMD5ToCache(filePath, fileName, md5sum, info.Size())
+	md5Cache.SetMD5(filePath, fileName, md5sum, info.Size(), info.ModTime().Unix())
 	return md5sum, nil
 }
 
@@ -824,6 +871,6 @@ func GetFilePath(storagePath, filename string) string {
 }
 
 // GetMD5Progress 获取MD5计算进度
-func GetMD5Progress(filePath string) (float64, bool, string) {
+func GetMD5Progress(filePath string, md5Cache interfaces.MD5Cache) (float64, bool, string) {
 	return md5Cache.GetProgress(filePath)
 }

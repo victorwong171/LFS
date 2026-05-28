@@ -1,31 +1,37 @@
 # LFS - Local File Storage
 
-🚀 **高性能大文件存储服务** - 支持分片上传、断点续传、完整性校验的单可执行文件服务
+[简体中文](#简体中文) | [English](#english)
+
+---
+
+# 简体中文
+
+🚀 **高性能大文件存储服务** - 支持分片上传、断点续传、完整性校验的单可执行文件服务。
 
 ## ✨ 特性
 
 ### 🎯 核心功能
-- **大文件分片上传** - 支持超大文件的分片传输
-- **断点续传** - 网络中断后可继续上传
-- **完整性校验** - MD5校验确保文件完整性
-- **批量操作** - 支持批量上传和下载
-- **静态文件嵌入** - 前端完全打包到可执行文件中
+- **大文件分片上传** - 支持超大文件的分片传输与并发。
+- **断点续传** - 网络中断后可继续上传，避免重复传输。
+- **双重校验机制** - 同时支持**真实内容MD5**和**高速元数据复合MD5**（`fileName:size:lastModified`），保证高安全性与极速上传的最佳平衡。
+- **插拔式设计** - MD5校验与计算功能完全插件化，可通过配置文件灵活开启或关闭，解耦核心存储逻辑。
+- **批量操作** - 支持批量多文件并发上传与批量打包下载。
+- **静态资源嵌入** - 酷炫的极客暗黑风前端界面，完全编译嵌入至单个Go可执行文件中。
 
-### ⚡ 性能优化
-- **HTTP/2支持** - 多路复用，减少连接开销
-- **Gzip压缩** - 约73%压缩率，减少传输时间
-- **智能缓存** - 静态文件内存缓存，零延迟响应
-- **连接池** - 支持100并发上传，200并发下载
-- **大缓冲区** - 4MB缓冲区，提升传输速度
-- **异步MD5计算** - 支持任意大小文件，无超时限制
-- **分块MD5计算** - 64MB分块，内存占用恒定
-- **进度追踪** - 实时显示MD5计算进度
+### ⚡ 性能与优化
+- **HTTP/2支持** - 多路复用，大幅减少高并发下的连接开销。
+- **流式Gzip压缩** - 原生流式Gzip压缩，静态资源压缩率达73%，无额外内存开销。
+- **智能内存缓存** - 静态文件全内存缓存，Etag强一致验证，零磁盘I/O延迟。
+- **高并发连接池** - 支持100并发上传，200并发下载。
+- **大缓冲区读写** - 4MB传输缓冲区与2MB分片缓冲区，极大减少磁盘开销。
+- **异步MD5计算** - 采用64MB恒定分块与3并发信号量限制，支持任意大小文件计算而不阻塞列表与API。
 
 ### 🛡️ 安全特性
-- **CORS支持** - 跨域访问控制
-- **安全头** - XSS保护、内容类型检查
-- **路径验证** - 防止路径遍历攻击
-- **超时控制** - 防止资源泄露
+- **CORS支持** - 灵活的安全跨域访问控制。
+- **安全防护** - XSS保护、内容类型嗅探防御。
+- **路径沙箱机制** - 严格的路径合法性校验，防止一切越权和路径遍历攻击。
+
+---
 
 ## 🚀 快速开始
 
@@ -37,23 +43,29 @@ git clone git@github.com:victorwong171/LFS.git
 cd LFS
 
 # 构建（生成单个可执行文件）
-go build -o bin/lfs-server ./cmd/lfs-server
+go build -o bin/lfs-server.exe ./cmd/lfs-server
 
 # 运行
-./bin/lfs-server
+./bin/lfs-server.exe
 ```
 
-服务将在 `http://localhost:8080` 启动
+服务将在 `http://localhost:8080` 启动。
 
-### 环境变量
+### 配置文件 `config.json`
 
-```bash
-# 设置存储路径（可选，默认为 /tmp/）
-export STORAGE_PATH=/path/to/storage
+在程序运行目录下创建 `config.json`：
 
-# 运行服务
-./bin/lfs-server
+```json
+{
+  "storage_path": "./data",
+  "enable_md5": true
+}
 ```
+
+- `storage_path`: 文件存储的目标目录。
+- `enable_md5`: 是否开启MD5完整性校验（如果设为`false`，所有上传将绕过MD5验证并立即保存，计算任务将通过Null接口隔离）。
+
+---
 
 ## 📡 API 接口
 
@@ -70,6 +82,7 @@ curl -X POST -F "file=@chunk.bin" \
   -F "chunkSize=5242880" \
   -F "totalChunk=10" \
   -F "md5=abc123" \
+  -F "modTime=1780000000" \
   http://localhost:8080/upload-chunk
 
 # 批量上传
@@ -77,7 +90,7 @@ curl -X POST -F "files=@file1.txt" -F "files=@file2.txt" \
   http://localhost:8080/batch-upload
 ```
 
-### 文件下载
+### 文件下载与管理
 ```bash
 # 单文件下载
 curl -O http://localhost:8080/download/example.txt
@@ -87,196 +100,110 @@ curl "http://localhost:8080/download-chunk/example.txt?chunkIndex=0&chunkSize=52
 
 # 批量下载
 curl "http://localhost:8080/batch-download?filenames=file1.txt,file2.txt"
-```
 
-### 文件管理
-```bash
-# 列出文件（立即返回，MD5异步计算）
+# 获取文件列表（异步自动计算MD5）
 curl http://localhost:8080/files
-
-# 获取文件MD5（支持大文件）
-curl http://localhost:8080/file-md5/example.txt
-
-# 查询MD5计算进度
-curl http://localhost:8080/file-md5-progress/huge_file.bin
-
-# 性能监控
-curl http://localhost:8080/metrics
 ```
-
-## 🏗️ 项目结构
-
-项目采用Go社区推荐的标准布局，遵循清晰的分层架构：
-
-```
-LFS/
-├── cmd/                    # 应用程序入口
-│   └── lfs-server/
-│       ├── main.go         # 主程序入口
-│       └── web/            # 静态文件（嵌入）
-│           └── static/
-│               ├── index.html
-│               ├── script.js
-│               └── style.css
-├── internal/               # 私有应用代码（不对外暴露）
-│   ├── app/                # 应用组装层
-│   │   └── app.go
-│   ├── handlers/           # HTTP处理器层
-│   │   ├── file.go
-│   │   └── chat.go
-│   ├── interfaces/         # 接口定义层
-│   │   ├── storage.go
-│   │   ├── cache.go
-│   │   ├── service.go
-│   │   ├── static.go
-│   │   ├── compressor.go
-│   │   └── middleware.go
-│   ├── services/           # 业务服务层
-│   │   ├── file_service.go
-│   │   ├── chat_service.go
-│   │   └── metrics_service.go
-│   ├── storage/            # 存储实现层
-│   │   ├── file_storage.go
-│   │   ├── adapter.go
-│   │   └── md5_cache_adapter.go
-│   └── static/             # 静态文件服务
-│       └── service.go
-├── pkg/                    # 可被外部应用使用的库代码
-│   ├── compression/        # 压缩库
-│   │   └── gzip_compressor.go
-│   └── optimization/       # 性能优化库
-│       └── performance.go
-├── config/                 # 配置管理
-│   └── config.go
-├── scripts/                 # 脚本文件
-│   ├── test_large_files.sh
-│   └── performance_test.md
-├── go.mod
-├── go.sum
-└── README.md
-```
-
-### 架构说明
-
-- **cmd/**: 应用程序入口，遵循Go标准布局
-- **internal/**: 私有代码，外部包无法导入，确保封装性
-- **pkg/**: 可复用的库代码，可被其他项目使用
-- **config/**: 配置管理，位于根目录便于访问
-- **scripts/**: 辅助脚本和文档
-
-### 设计原则
-
-1. **接口隔离**: 通过interfaces包定义清晰的接口契约
-2. **依赖注入**: 在app层组装所有依赖，便于测试和替换
-3. **分层架构**: handlers → services → storage，职责清晰
-4. **可扩展性**: 通过接口实现，易于替换存储、缓存等组件
-
-## 🔧 技术栈
-
-- **后端**: Go 1.21+, Gin Web框架
-- **前端**: HTML5, CSS3, JavaScript (ES6+)
-- **协议**: HTTP/1.1, HTTP/2
-- **压缩**: Gzip
-- **校验**: MD5
-- **并发**: Goroutines + Channels
-
-## 📊 性能指标
-
-- **响应时间**: 主页 < 100µs，文件列表 < 100ms
-- **压缩率**: CSS文件 73% (6902→1841字节)
-- **并发支持**: 100上传 + 200下载
-- **缓冲区**: 4MB (文件传输), 2MB (分片)
-- **内存使用**: 智能缓存 + 连接池
-- **MD5计算**: 支持任意大小文件，64MB分块
-- **列表性能**: 1000个文件 < 100ms响应
-
-## 🎨 前端界面
-
-访问 `http://localhost:8080` 使用简洁的Web界面：
-
-- 📁 拖拽上传
-- 📊 实时进度显示
-- 📋 文件列表管理
-- 🔄 断点续传支持
-- ✅ 完整性校验
-- 🔄 MD5计算进度追踪
-- 📈 大文件处理支持
-
-## 🚀 部署
-
-### 单机部署
-```bash
-# 直接运行
-./bin/lfs-server
-
-# 后台运行
-nohup ./bin/lfs-server > lfs.log 2>&1 &
-```
-
-### Docker部署（可选）
-```dockerfile
-FROM golang:1.21-alpine AS builder
-WORKDIR /app
-COPY . .
-RUN go build -o lfs-server ./cmd/lfs-server
-
-FROM alpine:latest
-RUN apk --no-cache add ca-certificates
-WORKDIR /root/
-COPY --from=builder /app/lfs-server .
-EXPOSE 8080
-CMD ["./lfs-server"]
-```
-
-## 🔍 监控
-
-访问 `http://localhost:8080/metrics` 查看实时性能数据：
-
-```json
-{
-  "memory": {
-    "alloc": 1346264,
-    "total_alloc": 5255264,
-    "sys": 12865552,
-    "num_gc": 2
-  },
-  "runtime": {
-    "goroutines": 3,
-    "cpu_cores": 10,
-    "max_procs": 10
-  },
-  "cache": {
-    "static_files": 3
-  },
-  "md5_calculation": {
-    "in_progress": 2,
-    "completed": 15,
-    "failed": 0
-  }
-}
-```
-
-### MD5计算进度查询
-```bash
-# 查询特定文件的MD5计算进度
-curl http://localhost:8080/file-md5-progress/huge_file.bin
-
-# 返回示例
-{
-  "filename": "huge_file.bin",
-  "progress": 0.45,
-  "calculating": true
-}
-```
-
-## 🤝 贡献
-
-欢迎提交 Issue 和 Pull Request！
-
-## 📄 许可证
-
-AGPL License
 
 ---
 
-**LFS** - 让本地网络传输变得简单高效！ 🚀
+# English
+
+🚀 **High-Performance Large File Storage Service** - A single executable file server supporting chunked uploads, resumable transfers, integrity verification, and embedded UI.
+
+## ✨ Features
+
+### 🎯 Core Functions
+- **Large File Chunked Upload** - Supports multi-threaded parallel chunked transfers for extremely large files.
+- **Resumable Transfers** - Seamlessly resumes uploads after network interruptions, avoiding duplicate transfers.
+- **Dual Validation Mechanism** - Supports both **Real Content MD5** and **High-Speed Metadata Composite MD5** (`fileName:size:lastModified`) to achieve the perfect balance between high security and fast uploads.
+- **Pluggable Architecture** - The MD5 validation and async calculation features are completely modularized and pluggable. You can easily enable/disable them via `config.json` to decouple the core storage logic.
+- **Batch Operations** - Supports concurrent batch file uploads and packaged batch downloads.
+- **Embedded UI** - Featuring a modern dark geek-style web dashboard, fully compiled and embedded into a single Go executable.
+
+### ⚡ Performance & Optimization
+- **HTTP/2 Support** - Multiplexing drastically cuts connection overhead under high concurrency.
+- **Streaming Gzip Compression** - Native streaming Gzip compression yields a 73% compression ratio for static assets with zero memory footprints.
+- **Smart Memory Caching** - Full in-memory static file cache, ETag strong consistency verification, and zero disk I/O latency.
+- **High-Concurrency Connection Pools** - Confirmed support for 100 concurrent uploads and 200 concurrent downloads.
+- **Large Buffer Processing** - 4MB transfer buffer and 2MB chunk buffer significantly decrease disk read/write cycles.
+- **Asynchronous MD5 Calculations** - 64MB constant chunk size and a 3-concurrency semaphore limit allow hashing of files of any size without blocking main API responses.
+
+### 🛡️ Security
+- **CORS Support** - Flexible cross-origin resource sharing access controls.
+- **Security Protections** - XSS protection and Content-Type sniffing defense.
+- **Path Sandboxing** - Strict path validation checks to prevent directory traversal and unauthorized directory access.
+
+---
+
+## 🚀 Quick Start
+
+### Build and Run
+
+```bash
+# Clone the repository
+git clone git@github.com:victorwong171/LFS.git
+cd LFS
+
+# Build (Produces a single executable binary)
+go build -o bin/lfs-server.exe ./cmd/lfs-server
+
+# Run
+./bin/lfs-server.exe
+```
+
+The server will spin up at `http://localhost:8080`.
+
+### Configuration File `config.json`
+
+Create a `config.json` file in the same directory as the executable:
+
+```json
+{
+  "storage_path": "./data",
+  "enable_md5": true
+}
+```
+
+- `storage_path`: Target directory for storing files.
+- `enable_md5`: Toggle MD5 integrity validation. If set to `false`, all uploads will bypass MD5 validation, skipping background hashing completely through clean Null adapters.
+
+---
+
+## 📡 API Endpoints
+
+### File Uploads
+```bash
+# Single File Upload
+curl -X POST -F "file=@example.txt" http://localhost:8080/upload
+
+# Chunked Upload
+curl -X POST -F "file=@chunk.bin" \
+  -F "fileName=large_file.bin" \
+  -F "totalSize=52428800" \
+  -F "chunkIndex=0" \
+  -F "chunkSize=5242880" \
+  -F "totalChunk=10" \
+  -F "md5=abc123" \
+  -F "modTime=1780000000" \
+  http://localhost:8080/upload-chunk
+
+# Batch Upload
+curl -X POST -F "files=@file1.txt" -F "files=@file2.txt" \
+  http://localhost:8080/batch-upload
+```
+
+### Downloads & Management
+```bash
+# Single File Download
+curl -O http://localhost:8080/download/example.txt
+
+# Chunked Download
+curl "http://localhost:8080/download-chunk/example.txt?chunkIndex=0&chunkSize=5242880"
+
+# Batch Download
+curl "http://localhost:8080/batch-download?filenames=file1.txt,file2.txt"
+
+# List Files (Asynchronously computes missing MD5 hashes)
+curl http://localhost:8080/files
+```

@@ -29,13 +29,13 @@ type Cache interface {
 type MD5Cache interface {
 	// GetMD5 从缓存中获取文件的MD5值。
 	// 返回MD5值和是否存在。
-	GetMD5(filePath, fileName string, size int64) (md5 string, exists bool)
+	GetMD5(filePath, fileName string, size int64, modTime int64) (md5 string, exists bool)
 
 	// SetMD5 将MD5值设置到缓存中。
-	SetMD5(filePath, fileName, md5 string, size int64) error
+	SetMD5(filePath, fileName, md5 string, size int64, modTime int64) error
 
 	// SetCalculating 标记文件正在计算MD5。
-	SetCalculating(filePath, fileName string, size int64) error
+	SetCalculating(filePath, fileName string, size int64, modTime int64) error
 
 	// UpdateProgress 更新MD5计算的进度。
 	// progress 为进度百分比（0-100）。

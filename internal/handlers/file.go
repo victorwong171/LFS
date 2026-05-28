@@ -113,6 +113,12 @@ func (h *FileHandlers) UploadChunk(c *gin.Context) {
 	}
 
 	md5sum := c.PostForm("md5")
+	modTimeStr := c.PostForm("modTime")
+	var modTime int64
+	if modTimeStr != "" {
+		modTime, _ = strconv.ParseInt(modTimeStr, 10, 64)
+	}
+
 	file, err := c.FormFile("file")
 	if err != nil {
 		c.JSON(http.StatusBadRequest, gin.H{"error": err.Error()})
@@ -126,6 +132,7 @@ func (h *FileHandlers) UploadChunk(c *gin.Context) {
 		ChunkSize:  chunkSize,
 		TotalChunk: totalChunk,
 		MD5:        md5sum,
+		ModTime:    modTime,
 	}
 
 	ctx := c.Request.Context()

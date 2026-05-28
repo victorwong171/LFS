@@ -17,6 +17,7 @@ type FileChunkInfo struct {
 	ChunkSize  int64  `json:"chunk_size"`  // 分片大小（字节）
 	TotalChunk int    `json:"total_chunk"` // 总分片数
 	MD5        string `json:"md5"`         // 分片的MD5值
+	ModTime    int64  `json:"mod_time"`    // 原始文件修改时间（Unix时间戳，秒）
 }
 
 // FileMetadata 表示文件或目录的元数据信息。

@@ -2,6 +2,7 @@ package storage
 
 import (
 	"context"
+	"errors"
 	"mime/multipart"
 	"path/filepath"
 	"strings"
@@ -16,14 +17,16 @@ import (
 type StorageAdapter struct {
 	storagePath string
 	md5Cache    interfaces.MD5Cache
+	enableMD5   bool
 }
 
 // NewStorageAdapter creates and returns a new storage adapter instance.
-// storagePath is the file storage path, md5Cache is used for MD5 value caching.
-func NewStorageAdapter(storagePath string, md5Cache interfaces.MD5Cache) *StorageAdapter {
+// storagePath is the file storage path, md5Cache is used for MD5 value caching, enableMD5 specifies if MD5 validation is enabled.
+func NewStorageAdapter(storagePath string, md5Cache interfaces.MD5Cache, enableMD5 bool) *StorageAdapter {
 	return &StorageAdapter{
 		storagePath: storagePath,
 		md5Cache:    md5Cache,
+		enableMD5:   enableMD5,
 	}
 }
 
@@ -42,8 +45,9 @@ func (a *StorageAdapter) SaveFileChunk(ctx context.Context, chunkInfo interfaces
 		ChunkSize:  chunkInfo.ChunkSize,
 		TotalChunk: chunkInfo.TotalChunk,
 		MD5:        chunkInfo.MD5,
+		ModTime:    chunkInfo.ModTime,
 	}
-	return SaveFileChunk(a.storagePath, internalChunkInfo, file)
+	return SaveFileChunk(a.storagePath, internalChunkInfo, file, a.md5Cache, a.enableMD5)
 }
 
 // DownloadFile downloads a file with resumable transfer support.
@@ -58,7 +62,7 @@ func (a *StorageAdapter) DownloadFileChunk(ctx context.Context, c *gin.Context, 
 
 // ListFiles lists all files and directories with recursive traversal support.
 func (a *StorageAdapter) ListFiles(ctx context.Context) ([]interfaces.FileMetadata, error) {
-	files, err := ListFiles(a.storagePath)
+	files, err := ListFiles(a.storagePath, a.md5Cache, a.enableMD5)
 	if err != nil {
 		return nil, err
 	}
@@ -113,33 +117,44 @@ func (a *StorageAdapter) GetFilePath(filename string) string {
 type MD5CalculatorAdapter struct {
 	storagePath string
 	md5Cache    interfaces.MD5Cache
+	enableMD5   bool
 }
 
 // NewMD5CalculatorAdapter creates and returns a new MD5 calculator adapter instance.
-// storagePath is the file storage path, md5Cache is used for MD5 value caching.
-func NewMD5CalculatorAdapter(storagePath string, md5Cache interfaces.MD5Cache) *MD5CalculatorAdapter {
+// storagePath is the file storage path, md5Cache is used for MD5 value caching, enableMD5 specifies if MD5 calculation is enabled.
+func NewMD5CalculatorAdapter(storagePath string, md5Cache interfaces.MD5Cache, enableMD5 bool) *MD5CalculatorAdapter {
 	return &MD5CalculatorAdapter{
 		storagePath: storagePath,
 		md5Cache:    md5Cache,
+		enableMD5:   enableMD5,
 	}
 }
 
 // GetMD5 gets the MD5 value of a file, prioritizing cache reads.
 func (a *MD5CalculatorAdapter) GetMD5(ctx context.Context, filePath string) (string, error) {
+	if !a.enableMD5 {
+		return "", errors.New("MD5 feature is disabled")
+	}
 	// filePath may be a full path or relative path
 	if !strings.HasPrefix(filePath, a.storagePath) {
 		filePath = GetFilePath(a.storagePath, filePath)
 	}
-	return GetFileMD5(a.storagePath, filepath.Base(filePath))
+	return GetFileMD5(a.storagePath, filepath.Base(filePath), a.md5Cache, a.enableMD5)
 }
 
 // GetMD5Progress gets the MD5 calculation progress information.
 func (a *MD5CalculatorAdapter) GetMD5Progress(filePath string) (float64, bool, string) {
-	return GetMD5Progress(filePath)
+	if !a.enableMD5 {
+		return 0.0, false, "MD5 feature is disabled"
+	}
+	return GetMD5Progress(filePath, a.md5Cache)
 }
 
 // CalculateMD5 calculates the MD5 value of a file.
 // progressCallback is used to report calculation progress, can be nil.
 func (a *MD5CalculatorAdapter) CalculateMD5(ctx context.Context, filePath string, progressCallback func(float64)) (string, error) {
+	if !a.enableMD5 {
+		return "", errors.New("MD5 feature is disabled")
+	}
 	return calculateFileMD5WithProgress(filePath, progressCallback)
 }

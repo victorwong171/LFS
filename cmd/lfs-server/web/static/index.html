@@ -3,84 +3,159 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>LFS</title>
-    <link rel="stylesheet" href="/static/style.css">
+    <title>LFS - 高性能大文件存储服务</title>
+    <!-- 引入高级现代字体与图标 -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
+    <link rel="stylesheet" href="/static/style.css?v=1.0.3">
 </head>
 <body>
-    <div class="container">
-        <header>
-            <h1><i class="fas fa-cloud-upload-alt"></i> LFS</h1>
-            <p>支持大文件分片上传、断点续传和完整性校验</p>
+    <div class="app-container">
+        <!-- 头部设计 -->
+        <header class="app-header">
+            <div class="header-logo">
+                <div class="logo-icon"><i class="fas fa-cubes"></i></div>
+                <div class="logo-text">
+                    <h1>LFS</h1>
+                    <span class="sub-logo">Local File Storage</span>
+                </div>
+            </div>
+            <div class="header-desc">
+                <span class="badge"><i class="fas fa-bolt"></i> HTTP/2 & Gzip</span>
+                <span class="badge"><i class="fas fa-shield-alt"></i> MD5 强一致校验</span>
+            </div>
         </header>
 
-        <main>
-            <section class="upload-section">
+        <!-- 仪表盘主体 -->
+        <main class="dashboard-grid">
+            
+            <!-- 左侧面板：上传与传输控制 -->
+            <section class="panel upload-panel">
+                <div class="panel-header">
+                    <h2><i class="fas fa-cloud-upload-alt"></i> 极速文件传输</h2>
+                </div>
+                
                 <div id="drop-area">
-                    <div class="upload-icon">
-                        <i class="fas fa-cloud-upload-alt"></i>
+                    <div class="upload-glow"></div>
+                    <div class="upload-icon-wrapper">
+                        <i class="fas fa-arrow-up-from-bracket"></i>
                     </div>
-                    <h2>拖拽文件到此处上传</h2>
-                    <p>或</p>
+                    <h3>拖拽文件至此区域</h3>
+                    <p>支持大文件、多文件并发分片传输</p>
                     <button id="select-files-btn" class="btn btn-primary">
-                        <i class="fas fa-folder-open"></i> 选择文件
+                        <i class="fas fa-file-export"></i> 选择本地文件
                     </button>
                     <input type="file" id="file-input" multiple>
                 </div>
                 
-                <div class="upload-controls">
-                    <button id="upload-button" class="btn btn-success" disabled>
-                        <i class="fas fa-upload"></i> 开始上传
-                    </button>
-                </div>
-            </section>
-
-            <section class="status-section">
-                <div id="status">
-                    <div class="progress-container">
-                        <div class="progress-bar">
-                            <div class="progress-fill" id="progress-fill"></div>
-                        </div>
-                        <div class="progress-text" id="progress-text">0%</div>
-                    </div>
-                </div>
-            </section>
-
-            <section class="files-section">
-                <div class="section-header">
-                    <h2><i class="fas fa-file-alt"></i> 文件列表</h2>
-                    <button id="refresh-list" class="btn btn-secondary">
-                        <i class="fas fa-sync"></i> 刷新
-                    </button>
-                </div>
-                <div class="table-container">
-                    <div id="file-tree-container"></div>
-                </div>
-            </section>
-
-            <section class="chat-section">
-                <div class="section-header">
-                    <h2><i class="fas fa-comments"></i> 聊天室</h2>
-                    <span id="chat-status" class="chat-status">未连接</span>
-                </div>
-                <div class="chat-container">
-                    <div id="chat-messages" class="chat-messages"></div>
-                    <div class="chat-input-container">
-                        <input type="text" id="chat-input" class="chat-input" placeholder="输入消息..." disabled>
-                        <button id="chat-send-btn" class="btn btn-primary" disabled>
-                            <i class="fas fa-paper-plane"></i> 发送
+                <!-- 待上传与传输队列管理 -->
+                <div class="queue-section">
+                    <div class="queue-header">
+                        <h3>传输任务队列</h3>
+                        <button id="upload-button" class="btn btn-success" disabled>
+                            <i class="fas fa-play"></i> 开始上传
                         </button>
                     </div>
+                    
+                    <div id="status">
+                        <!-- 状态通知或临时信息 -->
+                    </div>
+
+                    <!-- 动态上传任务列表 -->
+                    <div id="upload-queue-list" class="upload-queue-list">
+                        <!-- 动态生成的任务卡片 -->
+                        <div class="empty-queue-placeholder">
+                            <i class="fas fa-inbox"></i>
+                            <p>队列暂空，请先添加文件</p>
+                        </div>
+                    </div>
                 </div>
             </section>
+
+            <!-- 右侧面板：文件浏览器与聊天室 -->
+            <div class="right-column-grid">
+                
+                <!-- 文件浏览器面板 -->
+                <section class="panel files-panel">
+                    <div class="panel-header flex-header">
+                        <h2><i class="fas fa-folder-open"></i> 文件资源管理器</h2>
+                        <div class="header-actions">
+                            <button id="batch-download-btn" class="btn btn-action" disabled>
+                                <i class="fas fa-download"></i> 批量下载
+                            </button>
+                            <button id="refresh-list" class="btn btn-secondary">
+                                <i class="fas fa-arrows-rotate"></i> 刷新
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- 搜索与筛选栏 -->
+                    <div class="search-bar-container">
+                        <i class="fas fa-magnifying-glass search-icon"></i>
+                        <input type="text" id="search-input" class="search-input" placeholder="输入文件名实时检索...">
+                    </div>
+
+                    <!-- 文件列表树 -->
+                    <div class="table-container">
+                        <div id="file-tree-container">
+                            <div class="loading-placeholder">
+                                <i class="fas fa-spinner fa-spin"></i> 正在读取文件树...
+                            </div>
+                        </div>
+                    </div>
+                </section>
+
+                <!-- 聊天室面板 -->
+                <section class="panel chat-panel">
+                    <div class="panel-header flex-header">
+                        <h2><i class="fas fa-comments"></i> 私域多端聊天室</h2>
+                        <div class="chat-meta">
+                            <div class="nickname-badge" id="change-nickname-btn" title="点击修改昵称">
+                                <i class="fas fa-user-tag"></i> <span id="nickname-display">生成中...</span>
+                            </div>
+                            <span id="chat-status" class="chat-status disconnected">未连接</span>
+                        </div>
+                    </div>
+                    
+                    <div class="chat-container">
+                        <!-- 消息渲染区域 -->
+                        <div id="chat-messages" class="chat-messages">
+                            <!-- 聊天气泡 -->
+                        </div>
+                        
+                        <!-- 发送输入栏 -->
+                        <div class="chat-input-container">
+                            <input type="text" id="chat-input" class="chat-input" placeholder="输入消息..." disabled>
+                            <button id="chat-send-btn" class="btn btn-send" disabled>
+                                <i class="fas fa-paper-plane"></i>
+                            </button>
+                        </div>
+                    </div>
+                </section>
+            </div>
+            
         </main>
 
-        <footer>
-            <p>&copy; 2025 LFS. All rights reserved.</p>
+        <!-- 极简页脚 -->
+        <footer class="app-footer">
+            <p>&copy; 2026 LFS Pro. 极致吞吐与性能优化的本地大文件存储系统.</p>
         </footer>
     </div>
+
+    <!-- 模态框：修改昵称 -->
+    <div id="nickname-modal" class="modal">
+        <div class="modal-content">
+            <h3>修改您的昵称</h3>
+            <input type="text" id="modal-nickname-input" class="modal-input" maxlength="20" placeholder="请输入新昵称...">
+            <div class="modal-actions">
+                <button id="modal-cancel-btn" class="btn btn-secondary">取消</button>
+                <button id="modal-save-btn" class="btn btn-primary">确定</button>
+            </div>
+        </div>
+    </div>
     
-    <script src="https://cdn.jsdelivr.net/npm/spark-md5@3.0.2/spark-md5.min.js"></script>
-    <script src="/static/script.js"></script>
+    <script src="/static/script.js?v=1.0.3"></script>
 </body>
 </html>

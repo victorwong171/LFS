@@ -14,19 +14,19 @@ func NewMD5CacheAdapter() *MD5CacheAdapter {
 }
 
 // GetMD5 gets the MD5 value of a file from cache.
-func (a *MD5CacheAdapter) GetMD5(filePath, fileName string, size int64) (string, bool) {
-	return a.cache.GetMD5FromCache(filePath, fileName, size)
+func (a *MD5CacheAdapter) GetMD5(filePath, fileName string, size int64, modTime int64) (string, bool) {
+	return a.cache.GetMD5FromCache(filePath, fileName, size, modTime)
 }
 
 // SetMD5 sets the MD5 value to cache.
-func (a *MD5CacheAdapter) SetMD5(filePath, fileName, md5 string, size int64) error {
-	a.cache.SetMD5ToCache(filePath, fileName, md5, size)
+func (a *MD5CacheAdapter) SetMD5(filePath, fileName, md5 string, size int64, modTime int64) error {
+	a.cache.SetMD5ToCache(filePath, fileName, md5, size, modTime)
 	return nil
 }
 
 // SetCalculating marks that a file is being calculated for MD5.
-func (a *MD5CacheAdapter) SetCalculating(filePath, fileName string, size int64) error {
-	a.cache.SetCalculating(filePath, fileName, size)
+func (a *MD5CacheAdapter) SetCalculating(filePath, fileName string, size int64, modTime int64) error {
+	a.cache.SetCalculating(filePath, fileName, size, modTime)
 	return nil
 }
 
