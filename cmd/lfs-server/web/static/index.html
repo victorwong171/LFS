@@ -31,48 +31,123 @@
         <!-- 仪表盘主体 -->
         <main class="dashboard-grid">
             
-            <!-- 左侧面板：上传与传输控制 -->
-            <section class="panel upload-panel">
-                <div class="panel-header">
-                    <h2><i class="fas fa-cloud-upload-alt"></i> 极速文件传输</h2>
-                </div>
-                
-                <div id="drop-area">
-                    <div class="upload-glow"></div>
-                    <div class="upload-icon-wrapper">
-                        <i class="fas fa-arrow-up-from-bracket"></i>
-                    </div>
-                    <h3>拖拽文件至此区域</h3>
-                    <p>支持大文件、多文件并发分片传输</p>
-                    <button id="select-files-btn" class="btn btn-primary">
-                        <i class="fas fa-file-export"></i> 选择本地文件
-                    </button>
-                    <input type="file" id="file-input" multiple>
-                </div>
-                
-                <!-- 待上传与传输队列管理 -->
-                <div class="queue-section">
-                    <div class="queue-header">
-                        <h3>传输任务队列</h3>
-                        <button id="upload-button" class="btn btn-success" disabled>
-                            <i class="fas fa-play"></i> 开始上传
-                        </button>
+            <!-- 左侧列：上传与控制 -->
+            <div class="left-column-grid">
+                <!-- 左侧面板：上传与传输控制 -->
+                <section class="panel upload-panel">
+                    <div class="panel-header">
+                        <h2><i class="fas fa-cloud-upload-alt"></i> 极速文件传输</h2>
                     </div>
                     
-                    <div id="status">
-                        <!-- 状态通知或临时信息 -->
+                    <div id="drop-area">
+                        <div class="upload-glow"></div>
+                        <div class="upload-icon-wrapper">
+                            <i class="fas fa-arrow-up-from-bracket"></i>
+                        </div>
+                        <h3>拖拽文件至此区域</h3>
+                        <p>支持大文件、多文件并发分片传输</p>
+                        <button id="select-files-btn" class="btn btn-primary">
+                            <i class="fas fa-file-export"></i> 选择本地文件
+                        </button>
+                        <input type="file" id="file-input" multiple>
                     </div>
-
-                    <!-- 动态上传任务列表 -->
-                    <div id="upload-queue-list" class="upload-queue-list">
-                        <!-- 动态生成的任务卡片 -->
-                        <div class="empty-queue-placeholder">
-                            <i class="fas fa-inbox"></i>
-                            <p>队列暂空，请先添加文件</p>
+                    
+                    <!-- 待上传与传输队列管理 -->
+                    <div class="queue-section">
+                        <div class="queue-header">
+                            <h3>传输任务队列</h3>
+                            <button id="upload-button" class="btn btn-success" disabled>
+                                <i class="fas fa-play"></i> 开始上传
+                            </button>
+                        </div>
+                        
+                        <div id="status">
+                            <!-- 状态通知或临时信息 -->
+                        </div>
+    
+                        <!-- 动态上传任务列表 -->
+                        <div id="upload-queue-list" class="upload-queue-list">
+                            <!-- 动态生成的任务卡片 -->
+                            <div class="empty-queue-placeholder">
+                                <i class="fas fa-inbox"></i>
+                                <p>队列暂空，请先添加文件</p>
+                            </div>
                         </div>
                     </div>
-                </div>
-            </section>
+                </section>
+
+                <!-- 系统控制面板 -->
+                <section class="panel system-panel">
+                    <div class="panel-header flex-header">
+                        <h2><i class="fas fa-desktop"></i> 宿主机系统控制</h2>
+                        <span class="status-indicator-dot" id="system-heartbeat" title="服务心跳"></span>
+                    </div>
+
+                    <!-- 状态展示区 -->
+                    <div class="system-status-grid">
+                        <div class="status-card">
+                            <div class="status-card-label"><i class="fas fa-tasks"></i> 活跃传输数</div>
+                            <div class="status-card-value" id="sys-active-transfers">0</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-card-label"><i class="fas fa-power-off"></i> 关机计划</div>
+                            <div class="status-card-value value-small" id="sys-shutdown-mode">无计划</div>
+                        </div>
+                        <div class="status-card">
+                            <div class="status-card-label"><i class="fas fa-tv"></i> 显示器状态</div>
+                            <div class="status-card-value value-small" id="sys-display-state">已开启</div>
+                        </div>
+                    </div>
+
+                    <!-- 定时关机倒计时提示条（仅在有计划时显示） -->
+                    <div id="shutdown-countdown-bar" class="countdown-bar" style="display: none;">
+                        <span id="countdown-text"><i class="fas fa-hourglass-half"></i> 系统将于 --:-- 关机</span>
+                    </div>
+
+                    <!-- 控制操作区 -->
+                    <div class="system-controls-section">
+                        <!-- 关机模式控制器 -->
+                        <div class="control-group">
+                            <label class="control-label">关机计划配置</label>
+                            <div class="shutdown-config-row">
+                                <select id="shutdown-mode-select" class="system-select">
+                                    <option value="on_complete">传输完成后关机</option>
+                                    <option value="scheduled">定时倒计时关机</option>
+                                    <option value="immediate">立即强制关机</option>
+                                </select>
+                                <div id="shutdown-delay-container" class="delay-input-wrapper" style="display: none;">
+                                    <input type="number" id="shutdown-delay-input" class="system-input" min="1" value="10" placeholder="时间">
+                                    <select id="shutdown-delay-unit" class="system-select select-unit">
+                                        <option value="60">分钟</option>
+                                        <option value="1">秒</option>
+                                    </select>
+                                </div>
+                            </div>
+                            <div class="shutdown-buttons-row">
+                                <button id="btn-trigger-shutdown" class="btn btn-danger btn-full">
+                                    <i class="fas fa-power-off"></i> 执行计划
+                                </button>
+                                <button id="btn-cancel-shutdown" class="btn btn-secondary btn-full" style="display: none;">
+                                    <i class="fas fa-ban"></i> 取消计划
+                                </button>
+                            </div>
+                        </div>
+
+                        <!-- 屏幕显示控制器 -->
+                        <div class="control-group">
+                            <label class="control-label">显示器电源控制</label>
+                            <div class="display-buttons-row">
+                                <button id="btn-display-off" class="btn btn-action btn-full">
+                                    <i class="fas fa-moon"></i> 关闭屏幕
+                                </button>
+                                <button id="btn-display-on" class="btn btn-success btn-full">
+                                    <i class="fas fa-sun"></i> 唤醒屏幕
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </section>
+            </div>
 
             <!-- 右侧面板：文件浏览器与聊天室 -->
             <div class="right-column-grid">
