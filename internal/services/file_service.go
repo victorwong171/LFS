@@ -18,6 +18,7 @@ type FileService struct {
 	storage     interfaces.Storage
 	md5Calc     interfaces.MD5Calculator
 	storagePath string
+	listeners   []interfaces.TransferActivityListener
 }
 
 // NewFileService creates and returns a new file service instance.
@@ -30,18 +31,41 @@ func NewFileService(storage interfaces.Storage, md5Calc interfaces.MD5Calculator
 	}
 }
 
+// AddTransferActivityListener 增量注入传输活动监听器，不破坏构造函数签名
+func (s *FileService) AddTransferActivityListener(l interfaces.TransferActivityListener) {
+	s.listeners = append(s.listeners, l)
+}
+
+func (s *FileService) notifyStart() {
+	for _, l := range s.listeners {
+		l.OnTransferStart()
+	}
+}
+
+func (s *FileService) notifyEnd() {
+	for _, l := range s.listeners {
+		l.OnTransferEnd()
+	}
+}
+
 // UploadFile uploads a file.
 func (s *FileService) UploadFile(ctx context.Context, file *multipart.FileHeader, rangeHeader string) error {
+	s.notifyStart()
+	defer s.notifyEnd()
 	return s.storage.SaveFile(ctx, file, rangeHeader)
 }
 
 // UploadFileChunk uploads a file chunk.
 func (s *FileService) UploadFileChunk(ctx context.Context, chunkInfo interfaces.FileChunkInfo, file *multipart.FileHeader) error {
+	s.notifyStart()
+	defer s.notifyEnd()
 	return s.storage.SaveFileChunk(ctx, chunkInfo, file)
 }
 
 // BatchUpload performs batch upload (reuses single file upload implementation, supports concurrent processing).
 func (s *FileService) BatchUpload(ctx context.Context, files []*multipart.FileHeader) (successCount, errorCount int, errors []string) {
+	s.notifyStart()
+	defer s.notifyEnd()
 	if len(files) == 0 {
 		return 0, 0, nil
 	}
@@ -102,11 +126,15 @@ func (s *FileService) BatchUpload(ctx context.Context, files []*multipart.FileHe
 
 // DownloadFile downloads a file.
 func (s *FileService) DownloadFile(ctx context.Context, c *gin.Context, filename, rangeHeader string) error {
+	s.notifyStart()
+	defer s.notifyEnd()
 	return s.storage.DownloadFile(ctx, c, filename, rangeHeader)
 }
 
 // DownloadFileChunk downloads a file chunk.
 func (s *FileService) DownloadFileChunk(ctx context.Context, c *gin.Context, filename string, chunkIndex, chunkSize int64) error {
+	s.notifyStart()
+	defer s.notifyEnd()
 	return s.storage.DownloadFileChunk(ctx, c, filename, chunkIndex, chunkSize)
 }
 
