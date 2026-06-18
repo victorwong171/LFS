@@ -1050,6 +1050,178 @@ body {
 }
 
 /* ==========================================================================
+   System Control Panel Styles
+   ========================================================================== */
+.left-column-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+}
+
+.system-status-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 12px;
+}
+
+.status-card {
+    background: rgba(255, 255, 255, 0.02);
+    border: 1px solid rgba(255, 255, 255, 0.04);
+    border-radius: var(--radius-md);
+    padding: 12px;
+    text-align: center;
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+    justify-content: center;
+    min-height: 80px;
+}
+
+.status-card-label {
+    font-size: 11px;
+    color: var(--text-secondary);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+}
+
+.status-card-value {
+    font-size: 20px;
+    font-weight: 700;
+    color: var(--text-primary);
+}
+
+.status-card-value.value-small {
+    font-size: 13px;
+    font-weight: 600;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+/* Countdown Alert Bar */
+.countdown-bar {
+    background: rgba(245, 158, 11, 0.1);
+    border: 1px solid rgba(245, 158, 11, 0.2);
+    border-radius: var(--radius-md);
+    padding: 10px 16px;
+    color: var(--warning-color);
+    font-size: 13px;
+    font-weight: 500;
+    text-align: center;
+    box-shadow: 0 0 12px rgba(245, 158, 11, 0.1);
+}
+
+.countdown-bar i {
+    margin-right: 6px;
+    animation: fa-spin 2s linear infinite;
+}
+
+.system-controls-section {
+    display: flex;
+    flex-direction: column;
+    gap: 16px;
+}
+
+.control-group {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.control-label {
+    font-size: 12px;
+    font-weight: 600;
+    color: var(--text-secondary);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.shutdown-config-row {
+    display: flex;
+    gap: 12px;
+    align-items: center;
+}
+
+.system-select {
+    flex-grow: 1;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: 10px 12px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    outline: none;
+    cursor: pointer;
+    transition: var(--transition-fast);
+}
+
+.system-select:focus {
+    border-color: var(--primary-color);
+    box-shadow: 0 0 0 2px var(--primary-glow);
+}
+
+.delay-input-wrapper {
+    display: flex;
+    gap: 6px;
+    width: 150px;
+    flex-shrink: 0;
+}
+
+.system-input {
+    width: 60px;
+    background: rgba(15, 23, 42, 0.6);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: var(--radius-md);
+    padding: 10px 8px;
+    color: var(--text-primary);
+    font-family: inherit;
+    font-size: 14px;
+    text-align: center;
+    outline: none;
+    transition: var(--transition-fast);
+}
+
+.system-input:focus {
+    border-color: var(--primary-color);
+}
+
+.select-unit {
+    width: 84px;
+    flex-shrink: 0;
+}
+
+.shutdown-buttons-row, .display-buttons-row {
+    display: flex;
+    gap: 12px;
+}
+
+.btn-full {
+    flex-grow: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 6px;
+}
+
+/* Status Indicator Dot */
+.status-indicator-dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background-color: var(--success-color);
+    box-shadow: 0 0 8px var(--success-color);
+    transition: var(--transition-fast);
+}
+
+.status-indicator-dot.error {
+    background-color: var(--error-color);
+    box-shadow: 0 0 8px var(--error-color);
+}
+
+/* ==========================================================================
    Responsive Design
    ========================================================================== */
 @media (max-width: 1024px) {

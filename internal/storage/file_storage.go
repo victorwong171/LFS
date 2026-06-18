@@ -242,8 +242,6 @@ func (mc *MD5Cache) GetProgress(filePath string) (float64, bool, string) {
 	return entry.Progress, entry.Calculating, entry.Error
 }
 
-
-
 // SaveFile 保存文件到指定路径，支持断点重传
 func SaveFile(storagePath string, file *multipart.FileHeader, rangeHeader string) error {
 	dest := filepath.Join(storagePath, file.Filename)
@@ -340,7 +338,7 @@ func SaveFileChunk(storagePath string, chunkInfo FileChunkInfo, file *multipart.
 	// 复制分片内容，使用优化的缓冲区
 	buf := make([]byte, ChunkBufferSize)
 	_, err = io.CopyBuffer(chunkFile, src, buf)
-	
+
 	// 必须在此处显式关闭文件句柄，释放 Windows 系统下的文件排他锁，否则 mergeFileChunks 内的 RemoveAll 将因锁定无法清理分片缓存
 	chunkFile.Close()
 	src.Close()
@@ -375,7 +373,7 @@ func SaveFileChunk(storagePath string, chunkInfo FileChunkInfo, file *multipart.
 			if md5sumReal != chunkInfo.MD5 && (md5sumComposite == "" || md5sumComposite != chunkInfo.MD5) {
 				// MD5校验失败，删除文件
 				os.Remove(destFile)
-				return fmt.Errorf("file integrity check failed: expected %s, got %s (real: %s, composite: %s)", 
+				return fmt.Errorf("file integrity check failed: expected %s, got %s (real: %s, composite: %s)",
 					chunkInfo.MD5, md5sumReal, md5sumReal, md5sumComposite)
 			}
 
@@ -411,7 +409,7 @@ func mergeFileChunks(chunkDir, targetFile string, totalChunk int) error {
 
 	for i := 0; i < totalChunk; i++ {
 		chunkPath := filepath.Join(chunkDir, fmt.Sprintf("%s_%d", fileName, i))
-		
+
 		// Attempt to open the exact file name first to bypass glob issues (like brackets in file name)
 		chunkFile, err := os.Open(chunkPath)
 		if err != nil {
@@ -517,7 +515,7 @@ func DownloadFile(c *gin.Context, storagePath, filename, rangeHeader string) err
 }
 
 // copyWithCancel 带取消功能的复制函数，支持大文件长时间传输
-func copyWithCancel(ctx context.Context, dst io.Writer, src io.Reader, size int64) error {
+func copyWithCancel(ctx context.Context, dst io.Writer, src io.Reader, _ int64) error {
 	// 使用更大的缓冲区大小以提高传输性能
 	// 使用优化的缓冲区大小
 	buf := make([]byte, DefaultBufferSize)

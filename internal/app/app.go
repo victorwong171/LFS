@@ -27,8 +27,10 @@ type App struct {
 	chatService    interfaces.ChatService
 	metricsService interfaces.MetricsService
 	staticService  interfaces.StaticFileService
+	sysService     interfaces.SystemControlService
 	fileHandlers   *handlers.FileHandlers
 	chatHandlers   *handlers.ChatHandlers
+	sysHandlers    *handlers.SystemHandlers
 	router         *gin.Engine
 	server         *http.Server
 }
@@ -67,6 +69,13 @@ func NewApp(cfg config.Config, staticFiles embed.FS) *App {
 	fileHandlers := handlers.NewFileHandlers(fileService)
 	chatHandlers := handlers.NewChatHandlers(chatService)
 
+	// === 增量装配开始 ===
+	hostController := storage.NewLocalHostController()
+	sysService := services.NewSystemControlService(hostController)
+	fileService.AddTransferActivityListener(sysService) // 注册监听器
+	sysHandlers := handlers.NewSystemHandlers(sysService)
+	// === 增量装配结束 ===
+
 	// Create Gin engine
 	router := gin.New()
 
@@ -76,6 +85,7 @@ func NewApp(cfg config.Config, staticFiles embed.FS) *App {
 	// Register routes
 	fileHandlers.Register(router)
 	chatHandlers.Register(router)
+	sysHandlers.Register(router) // 注册新路由
 	setupStaticRoutes(router, staticService)
 	setupMetricsRoute(router, metricsService)
 
@@ -97,8 +107,10 @@ func NewApp(cfg config.Config, staticFiles embed.FS) *App {
 		chatService:    chatService,
 		metricsService: metricsService,
 		staticService:  staticService,
+		sysService:     sysService,
 		fileHandlers:   fileHandlers,
 		chatHandlers:   chatHandlers,
+		sysHandlers:    sysHandlers,
 		router:         router,
 		server:         server,
 	}

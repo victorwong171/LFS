@@ -999,6 +999,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initNickname();
     fetchFileList();
     initWebSocket();
+    initSystemControl(); // 初始化系统控制面板
 });
 
 refreshListButton.addEventListener('click', fetchFileList);
@@ -1146,4 +1147,196 @@ function md5(string) {
     }
     var temp = wordToHex(a) + wordToHex(b) + wordToHex(c) + wordToHex(d);
     return temp.toLowerCase();
+}
+
+// ==========================================================================
+// 宿主机系统控制面板客户端逻辑
+// ==========================================================================
+function initSystemControl() {
+    // DOM 元素绑定
+    const heartbeat = document.getElementById('system-heartbeat');
+    const transfersVal = document.getElementById('sys-active-transfers');
+    const shutdownModeVal = document.getElementById('sys-shutdown-mode');
+    const displayStateVal = document.getElementById('sys-display-state');
+    const countdownBar = document.getElementById('shutdown-countdown-bar');
+    const countdownText = document.getElementById('countdown-text');
+    
+    const modeSelect = document.getElementById('shutdown-mode-select');
+    const delayContainer = document.getElementById('shutdown-delay-container');
+    const delayInput = document.getElementById('shutdown-delay-input');
+    const delayUnit = document.getElementById('shutdown-delay-unit');
+    
+    const btnTrigger = document.getElementById('btn-trigger-shutdown');
+    const btnCancel = document.getElementById('btn-cancel-shutdown');
+    const btnDispOff = document.getElementById('btn-display-off');
+    const btnDispOn = document.getElementById('btn-display-on');
+
+    if (!heartbeat) return; // 防御性判断
+
+    // 根据选择的关机模式，显示或隐藏延迟时间输入框
+    modeSelect.addEventListener('change', () => {
+        if (modeSelect.value === 'scheduled') {
+            delayContainer.style.display = 'flex';
+        } else {
+            delayContainer.style.display = 'none';
+        }
+    });
+
+    // 触发关机计划
+    btnTrigger.addEventListener('click', () => {
+        const mode = modeSelect.value;
+        let delay = 0;
+        if (mode === 'scheduled') {
+            const val = parseInt(delayInput.value);
+            const unit = parseInt(delayUnit.value);
+            if (isNaN(val) || val <= 0) {
+                showNotification('请输入有效的定时关机时间！', 'error');
+                return;
+            }
+            delay = val * unit;
+        }
+
+        // 二次确认，防止误触立即关机
+        if (mode === 'immediate') {
+            if (!confirm('您确定要立即关闭宿主机系统吗？未完成的任务将会中断。')) {
+                return;
+            }
+        }
+
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/system/shutdown', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    showNotification('关机计划已成功提交', 'success');
+                    updateSystemStatus();
+                } else {
+                    let errMsg = '提交关机计划失败';
+                    try {
+                        const res = JSON.parse(xhr.responseText);
+                        if (res.error) errMsg = res.error;
+                    } catch(e) {}
+                    showNotification(errMsg, 'error');
+                }
+            }
+        };
+        xhr.send(JSON.stringify({ mode: mode, delay: delay }));
+    });
+
+    // 取消关机计划
+    btnCancel.addEventListener('click', () => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/system/shutdown/cancel', true);
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    showNotification('关机计划已取消', 'success');
+                    updateSystemStatus();
+                } else {
+                    showNotification('取消关机计划失败', 'error');
+                }
+            }
+        };
+        xhr.send();
+    });
+
+    // 息屏
+    btnDispOff.addEventListener('click', () => {
+        setDisplayState('off');
+    });
+
+    // 唤醒屏幕
+    btnDispOn.addEventListener('click', () => {
+        setDisplayState('on');
+    });
+
+    function setDisplayState(state) {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', '/system/display', true);
+        xhr.setRequestHeader('Content-Type', 'application/json');
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    showNotification(state === 'on' ? '屏幕唤醒指令已发送' : '屏幕息屏指令已发送', 'success');
+                    updateSystemStatus();
+                } else {
+                    showNotification('控制显示器状态失败', 'error');
+                }
+            }
+        };
+        xhr.send(JSON.stringify({ state: state }));
+    }
+
+    // 定时获取并更新系统状态
+    function updateSystemStatus() {
+        const xhr = new XMLHttpRequest();
+        xhr.open('GET', '/system/status', true);
+        xhr.onreadystatechange = () => {
+            if (xhr.readyState === 4) {
+                if (xhr.status === 200) {
+                    try {
+                        const status = JSON.parse(xhr.responseText);
+                        heartbeat.classList.remove('error');
+                        heartbeat.title = '系统服务在线';
+
+                        // 1. 活跃传输数
+                        transfersVal.textContent = status.active_transfers;
+
+                        // 2. 显示器状态
+                        displayStateVal.textContent = status.display_on ? '已开启' : '已息屏';
+
+                        // 3. 关机模式与倒计时
+                        let modeText = '无计划';
+                        btnCancel.style.display = 'none';
+                        countdownBar.style.display = 'none';
+
+                        if (status.shutdown_mode === 'on_complete') {
+                            modeText = '任务完关机';
+                            btnCancel.style.display = 'block';
+                        } else if (status.shutdown_mode === 'immediate') {
+                            modeText = '即时关机';
+                        } else if (status.shutdown_mode === 'scheduled') {
+                            modeText = '倒计时关机';
+                            btnCancel.style.display = 'block';
+                            
+                            // 渲染倒计时时间
+                            if (status.shutdown_time) {
+                                const targetTime = new Date(status.shutdown_time).getTime();
+                                const diff = Math.max(0, Math.floor((targetTime - Date.now()) / 1000));
+                                if (diff > 0) {
+                                    const min = Math.floor(diff / 60);
+                                    const sec = diff % 60;
+                                    countdownText.innerHTML = `<i class="fas fa-hourglass-half"></i> 系统将于 <strong>${min}分${sec}秒</strong> 后关闭`;
+                                } else {
+                                    countdownText.innerHTML = `<i class="fas fa-hourglass-half"></i> 系统正在关机...`;
+                                }
+                                countdownBar.style.display = 'block';
+                            }
+                        }
+                        shutdownModeVal.textContent = modeText;
+                    } catch(e) {
+                        handleStatusError();
+                    }
+                } else {
+                    handleStatusError();
+                }
+            }
+        };
+        xhr.send();
+    }
+
+    function handleStatusError() {
+        heartbeat.classList.add('error');
+        heartbeat.title = '连接断开';
+        transfersVal.textContent = '--';
+        shutdownModeVal.textContent = '--';
+        displayStateVal.textContent = '--';
+        countdownBar.style.display = 'none';
+        btnCancel.style.display = 'none';
+    }
+
+    // 初始执行一次并设置每秒轮询（为了倒计时秒数实时刷新）
+    updateSystemStatus();
+    setInterval(updateSystemStatus, 1000);
 }
