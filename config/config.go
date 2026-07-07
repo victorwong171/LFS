@@ -21,9 +21,15 @@ func LoadConfig() Config {
 		EnableMD5: true, // Default to true
 	}
 
-	// 1. Try to load from config.json first
-	configFile := "config.json"
-	if data, err := os.ReadFile(configFile); err == nil {
+	// 1. Try to load from config.json in the same directory as main.go first, then fallback to working directory
+	configFile := "cmd/lfs-server/config.json"
+	data, err := os.ReadFile(configFile)
+	if err != nil {
+		configFile = "config.json"
+		data, err = os.ReadFile(configFile)
+	}
+
+	if err == nil {
 		if err := json.Unmarshal(data, &cfg); err == nil {
 			fmt.Printf("Loaded configuration from %s\n", configFile)
 		} else {
